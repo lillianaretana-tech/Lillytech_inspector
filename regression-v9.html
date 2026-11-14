@@ -91,6 +91,11 @@ document.querySelector('iframe').onload=async event=>{
     '<script type=module>',
     'Date.UTC(2020, 1, 1);',
     'new Date().toISOString().substring(0,10);',
+    "function creditTodayISO(){const t=todayISO();if(!isSundayISO(t))return t;const [y,m,d]=t.split('-').map(Number),x=new Date(Date.UTC(y,m-1,d-1));return x.toISOString().slice(0,10)}",
+    "function addEffectiveDays(start,days){const [y,m,d]=String(start).slice(0,10).split('-').map(Number),x=new Date(Date.UTC(y,m-1,d));let left=Number(days||0);while(left>0){x.setUTCDate(x.getUTCDate()+1);if(x.getUTCDay()!==0)left--}return x.toISOString().slice(0,10)}",
+    "function localISOOffset(days){const [y,m,d]=todayISO().split('-').map(Number);return new Date(Date.UTC(y,m-1,d+days)).toISOString().slice(0,10)}",
+    "function addCalendarDaysISO(iso,days){const [y,m,d]=iso.split('-').map(Number),x=new Date(Date.UTC(y,m-1,d+days));return x.toISOString().slice(0,10)}",
+    "const instant=new Date(); instant.toISOString().slice(0,10);",
     "await sb.from('pagos').insert(row);",
     "await sb.from('custom')",
     '  .insert(row);',
@@ -105,7 +110,7 @@ document.querySelector('iframe').onload=async event=>{
   check(findings('GRANT').length===2&&findings('ANON').length===2,'Contexto por ubicación SQL');
   check(findings('SYNTAX').length===1&&findings('SYNTAX')[0].line===4,'Solo sintaxis de scripts clásicos');
   check(findings('CACHE').some(f=>f.file==='sw.js'),'Detección de sw.js');
-  check(findings('UTC').length===1&&findings('HTTP').length===0,'UTC substring y namespace SVG');
+  check(findings('UTC').map(f=>f.line).join(',')==='7,12'&&findings('HTTP').length===0,'UTC substring y namespace SVG');
   check(findings('SBERROR').length===2,'Escrituras await sin captura');
   el('exportHtml').click();
   check(!(await downloads.at(-1).blob.text()).includes('server.pem:0'),'Informe sensible sin línea cero');
