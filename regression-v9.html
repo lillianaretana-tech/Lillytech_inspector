@@ -48,6 +48,19 @@ document.querySelector('iframe').onload=async event=>{
   el('search').dispatchEvent(new w.Event('input'));
   check(el('findingCount').textContent.includes('Mostrando 6 de'),'Filtro en la interfaz');
   check(exported.includes('&lt;p&gt;'),'Contexto escapado en informe HTML');
+  const review=d.querySelector('[data-review]');
+  const previousReviews=w.localStorage.getItem('lillytech_inspector_reviews_v6');
+  review.value='falso positivo';
+  review.dispatchEvent(new w.Event('change',{bubbles:true}));
+  check(el('findingCount').textContent.includes('Mostrando 5 de'),'Falso positivo oculto');
+  el('hideFalsePositives').click();
+  check(el('findingCount').textContent.includes('Mostrando 6 de'),'Falso positivo recuperable');
+  el('exportJson').click();
+  check(JSON.parse(await downloads.at(-1).blob.text()).findings.some(f=>f.review==='falso positivo'),'Revisión conservada en JSON');
+  el('exportHtml').click();
+  check((await downloads.at(-1).blob.text()).includes('Revisión humana: falso positivo'),'Revisión visible en HTML');
+  if(previousReviews===null)w.localStorage.removeItem('lillytech_inspector_reviews_v6');
+  else w.localStorage.setItem('lillytech_inspector_reviews_v6',previousReviews);
   async function scanFiles(entries){
    const transfer=new w.DataTransfer();
    for(const [name,body] of entries)transfer.items.add(new w.File([body],name));
