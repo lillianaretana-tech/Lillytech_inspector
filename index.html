@@ -119,6 +119,18 @@ function inspectSupabaseResults(file){
   if(calls.includes('throwOnError'))continue;
   const bindings=match[1];
   const line=text.slice(0,match.index).split('\n').length;
+  const errorBinding=bindings?.match(/(?:^|,)\s*error\s*(?::\s*([A-Za-z_$][\w$]*))?\s*(?=,|$)/);
+  if(errorBinding){
+   const name=errorBinding[1]||'error';
+   const remaining=tail.slice(index);
+   // Limit the check to the rest of the current indented block.
+   const indent=match[0].match(/^[ \t]*/)[0].length;
+   const boundary=remaining.match(new RegExp('\\n[ \\t]{0,'+Math.max(0,indent-1)+'}\\}'));
+   const block=boundary ? remaining.slice(0,boundary.index) : remaining;
+   const code=block.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,'');
+   const references=code.match(/[A-Za-z_$][\w$]*/g)||[];
+   if(!references.includes(name))add(extraRules.SBERROR,file,line,'Supabase: error capturado sin uso visible','Revisar si el error devuelto se comprueba o se propaga.');
+  }
   if(bindings===undefined){
    if(calls.some(name=>/^(?:insert|update|upsert|delete)$/.test(name)))add(extraRules.SBERROR,file,line,'Escritura Supabase sin capturar el resultado','La operación puede devolver un error aunque esté dentro de try/catch.');
   }else if(/^\s*data\b|\bdata\s*[:,]/.test(bindings)&&!/(?:^|,)\s*(?:error\b|\.\.\.)/.test(bindings)){
