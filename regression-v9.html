@@ -1,0 +1,54 @@
+<!doctype html><meta charset="utf-8"><title>Regresión V9</title>
+<iframe src="index.html"></iframe><pre id="result">PENDIENTE</pre>
+<script>
+document.querySelector('iframe').onload=async event=>{
+ const result=document.getElementById('result');
+ try{
+  const w=event.target.contentWindow,d=w.document,el=id=>d.getElementById(id);
+  const checks=[];
+  function check(condition,label){if(!condition)throw Error(label);checks.push(label)}
+  const downloads=[];
+  w.URL.createObjectURL=blob=>{downloads.push({blob});return 'blob:regression'};
+  w.HTMLAnchorElement.prototype.click=function(){downloads.at(-1).name=this.download};
+  el('exportJson').click();
+  check(downloads.length===0,'Exportación sin análisis');
+  el('pasteCode').value=[
+   "el.innerHTML = '<p>Texto</p>';",
+   'el.innerHTML = `<p>${safe(row.name)}</p>`;',
+   'el.innerHTML = `<p>${safe(row.name)} ${raw}</p>`;',
+   'el.innerHTML = `<a href="${safe(url)}">Ir</a>`;',
+   "el.insertAdjacentHTML('beforeend', '<p>Fijo</p>');",
+   "el.insertAdjacentHTML('beforeend',",
+   '  rendered);',
+   'el.outerHTML = markup;',
+   "try { localStorage.removeItem('temp'); } catch {}",
+   "try { sessionStorage.removeItem('temp'); save(); } catch {}",
+   'try { save(); } catch (error) {',
+   '}',
+   'task.catch(() => null);',
+   'try { save(); } catch (error) { console.error(error); }',
+   "try { localStorage.removeItem(key); } catch {}",
+   'el.innerHTML = `<p>${safe(row.name) + raw}</p>`;',
+   'el.innerHTML = "<p>" + raw;',
+  ].join('\n');
+  el('pasteBtn').click();
+  check(/Análisis finalizado/.test(el('status').textContent),'Análisis desde la interfaz');
+  check(d.querySelector('header').textContent.includes('V9'),'Versión visible');
+  el('exportJson').click();
+  el('exportHtml').click();
+  const [json,html]=downloads;
+  const report=JSON.parse(await json.blob.text());
+  check(json.name==='lillytech-auditoria-v9.json'&&report.version==='9.0','Versión y nombre JSON');
+  const exported=await html.blob.text();
+  check(html.name==='lillytech-auditoria-v9.html'&&exported.includes('Inspector V9.0'),'Versión y nombre HTML');
+  const lines=rule=>report.findings.filter(f=>f.rule===rule).map(f=>f.line).sort((a,b)=>a-b).join(',');
+  check(lines('HTML')==='3,4,6,8,16,17','Ubicaciones HTML: '+lines('HTML'));
+  check(lines('ERROR')==='10,11,13,15','Ubicaciones catch: '+lines('ERROR'));
+  el('search').value='inserción de html dinámico';
+  el('search').dispatchEvent(new w.Event('input'));
+  check(el('findingCount').textContent.includes('Mostrando 6 de'),'Filtro en la interfaz');
+  check(exported.includes('&lt;p&gt;'),'Contexto escapado en informe HTML');
+  result.textContent='PASS '+checks.length+'\n'+checks.join('\n');
+ }catch(error){result.textContent='FAIL '+error.stack}
+};
+</script>
