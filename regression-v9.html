@@ -70,7 +70,7 @@ document.querySelector('iframe').onload=async event=>{
     await new Promise(resolve=>setTimeout(resolve,20));
     el('exportJson').click();
     const latest=JSON.parse(await downloads.at(-1).blob.text());
-    if(latest.scope.filesRead.some(f=>f.path===entries.at(-1)[0]))return latest;
+    if(latest.scope.filesRead.some(f=>f.path===entries.at(-1)[0]) && !latest.scope.filesRead.some(f=>!entries.some(([name])=>name===f.path)))return latest;
    }
    throw Error('La carga de archivos no terminó');
   }
@@ -128,6 +128,21 @@ document.querySelector('iframe').onload=async event=>{
   check(findings('SBERROR').map(f=>f.line).join(',')==='13,14,17,22','Escrituras await sin captura');
   el('exportHtml').click();
   check(!(await downloads.at(-1).blob.text()).includes('server.pem:0'),'Informe sensible sin línea cero');
+  const sample=crypto.randomUUID();
+  const project=[['fixture.js','// '+sample]];
+  await scanFiles(project);
+  const test=d.querySelector('[data-test]');
+  test.value='pasó';
+  test.dispatchEvent(new w.Event('change',{bubbles:true}));
+  const note=d.querySelector('[data-note]');
+  note.value='Evidencia de regresión';
+  note.dispatchEvent(new w.Event('input',{bubbles:true}));
+  const different=await scanFiles([['fixture.js','// otro '+sample],['other.js','// marker']]);
+  check(different.scope.testsExecuted===0,'Resultados aislados entre proyectos');
+  const restored=await scanFiles(project);
+  check(restored.scope.testsExecuted===1&&restored.proposedTests.some(p=>p.status==='pasó'&&p.note==='Evidencia de regresión'),'Resultado y nota recuperados');
+  const savedKey=Object.keys(w.localStorage).find(key=>key.startsWith('lillytech_inspector_tests:')&&w.localStorage.getItem(key).includes('Evidencia de regresión'));
+  if(savedKey)w.localStorage.removeItem(savedKey);
   result.textContent='PASS '+checks.length+'\n'+checks.join('\n');
  }catch(error){result.textContent='FAIL '+error.stack}
 };
