@@ -48,6 +48,54 @@ document.querySelector('iframe').onload=async event=>{
   el('search').dispatchEvent(new w.Event('input'));
   check(el('findingCount').textContent.includes('Mostrando 6 de'),'Filtro en la interfaz');
   check(exported.includes('&lt;p&gt;'),'Contexto escapado en informe HTML');
+  async function scanFiles(entries){
+   const transfer=new w.DataTransfer();
+   for(const [name,body] of entries)transfer.items.add(new w.File([body],name));
+   el('filesInput').files=transfer.files;
+   el('filesInput').dispatchEvent(new w.Event('change'));
+   for(let attempt=0;attempt<50&&el('filesInput').files.length===0;attempt++){
+    await new Promise(resolve=>setTimeout(resolve,20));
+    el('exportJson').click();
+    const latest=JSON.parse(await downloads.at(-1).blob.text());
+    if(latest.scope.filesRead.some(f=>f.path===entries.at(-1)[0]))return latest;
+   }
+   throw Error('La carga de archivos no terminó');
+  }
+  const selectedTest=d.querySelector('[data-test]');
+  selectedTest.value='pasó';
+  selectedTest.dispatchEvent(new w.Event('change',{bubbles:true}));
+  el('financeTables').value='custom';
+  const local=await scanFiles([
+   ['server.pem','private'],['private.key','private'],['.env.example','EXAMPLE=1'],
+   ['credentials-guide.js','// documentation'],
+   ['sw.js',"caches.open('site');"],
+   ['rules.sql','grant select on one to anon;\ngrant select on two to anon;'],
+   ['sample.html',[
+    '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+    '<script type=importmap>{"imports":{}}<\/script>',
+    '<script type="text/babel">const node = <div />;<\/script>',
+    '<script>const = ;<\/script>',
+    '<script type=module>',
+    'Date.UTC(2020, 1, 1);',
+    'new Date().toISOString().substring(0,10);',
+    "await sb.from('pagos').insert(row);",
+    "await sb.from('custom')",
+    '  .insert(row);',
+    '<\/script>'
+   ].join('\n')]
+  ]);
+  const findings=rule=>local.findings.filter(f=>f.rule===rule);
+  check(findings('SENSITIVE').map(f=>f.file).sort().join(',')==='private.key,server.pem','Archivos sensibles por nombre');
+  check(local.scope.filesRead.some(f=>f.path==='.env.example')||local.scope.skipped.some(f=>f.path==='.env.example'&&f.reason==='extensión no analizada'),'Plantilla de entorno sin alerta sensible');
+  check(local.repository===''&&local.scope.testsExecuted===0,'Origen local y resultados reiniciados');
+  check(findings('PAYMENT').length===1&&findings('PAYMENT')[0].evidence.endsWith('custom'),'Tablas configurables sin duplicados');
+  check(findings('GRANT').length===2&&findings('ANON').length===2,'Contexto por ubicación SQL');
+  check(findings('SYNTAX').length===1&&findings('SYNTAX')[0].line===4,'Solo sintaxis de scripts clásicos');
+  check(findings('CACHE').some(f=>f.file==='sw.js'),'Detección de sw.js');
+  check(findings('UTC').length===1&&findings('HTTP').length===0,'UTC substring y namespace SVG');
+  check(findings('SBERROR').length===2,'Escrituras await sin captura');
+  el('exportHtml').click();
+  check(!(await downloads.at(-1).blob.text()).includes('server.pem:0'),'Informe sensible sin línea cero');
   result.textContent='PASS '+checks.length+'\n'+checks.join('\n');
  }catch(error){result.textContent='FAIL '+error.stack}
 };
