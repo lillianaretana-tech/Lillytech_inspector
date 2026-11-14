@@ -86,6 +86,46 @@ function inspectHtmlAndCatches(file){
   add(rules.ERROR,file,lineAt(match.index),'Captura de error vacía','La falla podría quedar oculta.');
  }
 }
+function inspectSupabaseResults(file){
+ const text=file.text;
+ const queries=/^[ \t]*(?:(?:const|let|var)\s*\{([^{}]*)\}\s*=\s*)?await\s+[\w$.]+\s*\.\s*(from|rpc|auth\s*\.\s*\w+)\s*\(/gm;
+ for(const match of text.matchAll(queries)){
+  const tail=text.slice(match.index+match[0].length);
+  // Consume simple chained calls, including multiline payloads and nested
+  // parentheses. An explicit throwOnError handles returned query errors.
+  const calls=[];
+  let index=0;
+  let method=match[2];
+  while(method){
+   let depth=1;
+   // Skip quoted text while counting parentheses in each argument list.
+   for(;index<tail.length&&depth;index++){
+    const char=tail[index];
+    if(char==='"'||char==="'"||char===String.fromCharCode(96)){
+     index++;
+     while(index<tail.length&&tail[index]!==char){
+      if(tail[index]==='\\')index++;
+      index++;
+     }
+    }else if(char==='(')depth++;
+    else if(char===')')depth--;
+   }
+   if(depth)break;
+   calls.push(method);
+   const next=tail.slice(index).match(/^\s*\.\s*(\w+)\s*\(/);
+   method=next?.[1];
+   if(next)index+=next[0].length;
+  }
+  if(calls.includes('throwOnError'))continue;
+  const bindings=match[1];
+  const line=text.slice(0,match.index).split('\n').length;
+  if(bindings===undefined){
+   if(calls.some(name=>/^(?:insert|update|upsert|delete)$/.test(name)))add(extraRules.SBERROR,file,line,'Escritura Supabase sin capturar el resultado','La operación puede devolver un error aunque esté dentro de try/catch.');
+  }else if(/^\s*data\b|\bdata\s*[:,]/.test(bindings)&&!/(?:^|,)\s*(?:error\b|\.\.\.)/.test(bindings)){
+   add(extraRules.SBERROR,file,line,'Supabase: destructuración solo de data','La operación puede devolver error; revisar cómo se maneja en la función.');
+  }
+ }
+}
 function analyzeFile(file){const lines=linesOf(file.text),isSQL=/\.sql$/i.test(file.path),isSW=/(?:^|\/)(?:sw|service-worker)(?:[.-][^/]*)?\.[cm]?js$/i.test(file.path);let swCache=false,swNetwork=false,swNavigate=false,swCleanup=false;let locals=[];for(let i=0;i<lines.length;i++){const s=lines[i],line=i+1,near=lines.slice(Math.max(0,i-7),Math.min(lines.length,i+8)).join('\n');if(isSQL&&/(using|with\s+check)\s*\(\s*true\s*\)/i.test(s))add(rules.RLS,file,line,'Política con condición true','Podría permitir acceso amplio, según la operación y roles definidos.');if(/(?:sb_secret_|ghp_|github_pat_)[A-Za-z0-9_-]{12,}/.test(s)||/(?:service_role|SUPABASE_SERVICE_ROLE_KEY)\s*[:=]\s*['"`][^'"`]{12,}/i.test(s))add(rules.SECRET,file,line,'Patrón de clave privilegiada','Puede ser una credencial privilegiada en el cliente; comprobar antes de actuar.');if(!s.includes('${') && (/(?:const|let|var)\s+\w*(?:saldo|balance|restante|deuda)\w*\s*=\s*[\w.()]+\s*[+\-*/]\s*[\w.()]+/i.test(s)||/(?:saldo|balance|restante)\s*[:=]\s*[^\n]*\b(?:reduce\s*\(|\w+\s*[+\-]\s*\w+)/i.test(s)))add(rules.BALANCE,file,line,'Expresión aritmética de saldo','La expresión puede ser una fórmula financiera; verificar contexto.');if(/(?:Math\.round|toFixed)\s*\(/.test(s)&&/(saldo|monto|pago|total|interes|interés|cuota)/i.test(near))add(rules.ROUND,file,line,'Redondeo cerca de lógica financiera','No es defecto por sí solo.');if(/localStorage\.(setItem|getItem)\s*\(/.test(s)&&/(saldo|prestamo|préstamo|pago|cobro|movimiento)/i.test(s))locals.push(line);if(/\.select\(\s*['"`]\*['"`]\s*\)/.test(s)&&!/(\.limit\(|\.range\(|\.eq\(|\.in\()/.test(near))add(rules.QUERY,file,line,'select(*) sin filtro o límite visible en contexto cercano','Los filtros podrían estar encadenados en otras líneas; revisar función.');for(const match of s.matchAll(/\.toISOString\s*\(\s*\)\s*\.\s*(?:(?:slice|substring)\s*\(\s*0\s*,\s*10\s*\)|split\s*\(\s*['"]T['"]\s*\))/gi)){
  const receiver=s.slice(0,match.index);
  // Explicit calendar construction is separate from formatting an instant.
@@ -97,7 +137,6 @@ function analyzeFile(file){const lines=linesOf(file.text),isSQL=/\.sql$/i.test(f
 }
 if(/\beval\s*\(|new\s+Function\s*\(/.test(s))add(extraRules.EVAL,file,line,'Ejecución dinámica','Comprobar procedencia de datos; posible inyección de código.');
 if(/http:\/\//i.test(s.replace(/\bxmlns(?::[\w-]+)?\s*=\s*(["'])http:\/\/[^"']+\1/gi,''))&&!/(localhost|127\.0\.0\.1)/.test(s))add(extraRules.HTTP,file,line,'Referencia HTTP','Comprobar contenido mixto y seguridad del recurso.');
-if(/const\s*\{\s*data\s*\}\s*=\s*await\s+.*(?:\.from\s*\(|\.rpc\s*\(|\.auth\.)/.test(s))add(extraRules.SBERROR,file,line,'Supabase: destructuración solo de data','La consulta puede devolver error; revisar manejo de error en la función completa.');
 if(isSQL&&/\bto\s+anon\b/i.test(s))add(extraRules.ANON,file,line,'Política para anon','Verificar si el acceso público es intencional y restringido.');
 if(isSQL&&/\bgrant\s+.+\bto\s+anon\b/i.test(s))add(extraRules.GRANT,file,line,'GRANT para anon','Comprobar alcance y RLS de tablas afectadas.');
 if(isSQL&&/\bsecurity\s+definer\b/i.test(s))add(extraRules.DEFINER,file,line,'Función SECURITY DEFINER','Revisar search_path, propietario y permisos EXECUTE.');
@@ -108,9 +147,8 @@ const financialTables=new Set($('financeTables').value.split(',').map(name=>name
 for(const match of file.text.matchAll(/\.\s*from\s*\(\s*(['"])([^'"]+)\1\s*\)\s*\.\s*(?:insert|upsert|update)\s*\(/g)){
  if(financialTables.has(match[2].toLowerCase()))add(rules.PAYMENT,file,file.text.slice(0,match.index).split('\n').length,'Escritura financiera en '+match[2],'Revisar idempotencia, errores y atomicidad.');
 }
-for(const match of file.text.matchAll(/^[ \t]*await\s+[\w$.]+\s*\.\s*from\s*\(\s*(['"])[^'"]+\1\s*\)\s*\.\s*(?:insert|upsert|update|delete)\s*\(/gm)){
- add(extraRules.SBERROR,file,file.text.slice(0,match.index).split('\n').length,'Escritura Supabase sin capturar el resultado','Verificar si se comprueba el error devuelto o se usa throwOnError.');
-}
+inspectSupabaseResults(file);
+
 if(isSW&&swCache&&(!swNetwork||!swCleanup)){const reason=`Caché: sí; red: ${swNetwork?'sí':'no'}; navegación explícita: ${swNavigate?'sí':'no'}; limpieza: ${swCleanup?'sí':'no'}. Es una revisión de estrategia, no prueba de desactualización.`;add(rules.CACHE,file,1,'Resumen del service worker',reason,swNetwork&&swCleanup?'revisión preventiva':'revisión prioritaria')}
 if(locals.length)add(rules.LOCAL,file,locals[0],`Almacenamiento de negocio (${locals.length} referencias)`, 'Se detectaron referencias a almacenamiento local con nombres relacionados con datos; confirmar si contienen saldos reales.');
 }

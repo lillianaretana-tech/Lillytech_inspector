@@ -99,6 +99,20 @@ document.querySelector('iframe').onload=async event=>{
     "await sb.from('pagos').insert(row);",
     "await sb.from('custom')",
     '  .insert(row);',
+    'try {',
+    " await sb.from('audit').insert({ payload: build(row) });",
+    '} catch (error) { console.warn(error); }',
+    "await sb.from('audit')",
+    ' .insert({ payload: build(row) })',
+    ' .throwOnError();',
+    'const {',
+    ' data: entries',
+    '} = await sb',
+    " .from('audit')",
+    " .select('*');",
+    'const { data, error: queryError } = await sb',
+    " .from('audit').select('*');",
+    'if (queryError) console.error(queryError);',
     '<\/script>'
    ].join('\n')]
   ]);
@@ -111,7 +125,7 @@ document.querySelector('iframe').onload=async event=>{
   check(findings('SYNTAX').length===1&&findings('SYNTAX')[0].line===4,'Solo sintaxis de scripts clásicos');
   check(findings('CACHE').some(f=>f.file==='sw.js'),'Detección de sw.js');
   check(findings('UTC').map(f=>f.line).join(',')==='7,12'&&findings('HTTP').length===0,'UTC substring y namespace SVG');
-  check(findings('SBERROR').length===2,'Escrituras await sin captura');
+  check(findings('SBERROR').map(f=>f.line).join(',')==='13,14,17,22','Escrituras await sin captura');
   el('exportHtml').click();
   check(!(await downloads.at(-1).blob.text()).includes('server.pem:0'),'Informe sensible sin línea cero');
   result.textContent='PASS '+checks.length+'\n'+checks.join('\n');
